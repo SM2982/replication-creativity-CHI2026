@@ -1,0 +1,1633 @@
+---
+title: "Analysis_Creativity_Experiment"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-07-09"
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+# Clear all ---------------------------------------------------------------
+rm(list=ls())
+
+# Install and load required packages 
+req <- substitute(require(x, character.only = TRUE))
+libs <- c("psych", "dplyr", "skimr", "tidyverse", "tidyr", "ggplot2", "lme4", "lmerTest", "emmeans", "knitr", "gridExtra", "scales", "here", "ggh4x", "fmsb", "stargazer", "grid", "apaTables", "easystats", "qqplotr", "rstatix")
+sapply(libs, function(x) eval(req) || {install.packages(x, dependencies = T); eval(req)})
+
+
+
+
+# Global color palette -----------------------------------------------------
+# Discrete palette to be used consistently across all ggplot2 plots
+ac_palette <- c(
+  "#7A9E7E", # Sage Green
+  "#4F6D7A", # Slate Blue
+  "#5DA9A8", # Muted Teal
+  "#A398B3", # Dusty Lavender
+  "#D9CFC1", # Warm Sand
+  "#4A4A4A"  # Charcoal
+)
+
+# Make the palette the default for discrete colour/fill scales
+scale_colour_discrete <- function(...) ggplot2::scale_colour_manual(..., values = ac_palette)
+scale_color_discrete   <- scale_colour_discrete
+scale_fill_discrete    <- function(...) ggplot2::scale_fill_manual(..., values = ac_palette)
+
+# STANDARDIZED BOT ORDER FOR ALL GRAPHICS: feedback, suggestion, improvement, vanilla, control
+# (Question-mode, Suggestion-mode, Model-led, Vanilla, Control)
+
+# Global bot-type label map (two-line variants for readability)
+label_map <- c(
+  control     = "Control",
+  vanilla     = "Vanilla",
+  feedback    = "Question-Mode",
+  improvement = "Model-Led",
+  suggestion  = "Suggestion-Mode"
+)
+
+# Boxplot-specific label map with line breaks to prevent overlapping
+boxplot_label_map <- c(
+  control     = "Control",
+  vanilla     = "Vanilla",
+  feedback    = "Question-\nMode",
+  improvement = "Model-\nLed",
+  suggestion  = "Suggestion-\nMode"
+)
+
+# Global color palette for bot types
+bot_colors <- c(
+  vanilla     = "#A398B3", # Dusty Lavender
+  feedback    = "#4F6D7A", # Slate Blue
+  improvement = "#5DA9A8", # Muted Teal
+  suggestion  = "#7A9E7E", # Sage Green
+  control     = "#D9CFC1"  # Warm Sand
+)
+
+
+# Set project root directory using here package for reproducible paths
+library(here)
+project_root <- here::here()
+
+# Set working directory to project root
+knitr::opts_knit$set(root.dir = project_root)
+
+# Helper path builders using explicit project root
+data_path <- function(...) file.path(project_root, "analysis", "Study1", "data", ...)
+fig_path  <- function(...) file.path(project_root, "analysis", "Study1", "figures", ...)
+code_path <- function(...) file.path(project_root, "analysis", "Code", ...)
+analysis_path <- function(...) file.path(project_root, "analysis", ...)
+```
+
+
+#Overview 
+```{r, echo=FALSE}
+data_clean <- read.csv(data_path("data_clean.csv"))
+elaboration_data <- read.csv(data_path("elaboration_data_anonymized.csv"))
+dim(data_clean)         # Dimensions of the data frame.             
+head(data_clean,10)     # Shows first n rows.                    
+tail(data_clean,10)   # Shows last n rows.                  
+str(data_clean)           # Displays the structure of an object.    
+summary(data_clean)   # Displays summary statistics.            
+colnames(data_clean)    # Column names of an object.            
+skim(data_clean) #Skim through the data
+
+```
+
+#Create Logit Transformed Version of Diversity Measure
+```{r}
+# Check the range of refined_div_condition
+summary(data_clean$refined_div_condition)
+
+# Check for exact 0 or 1 values (which would cause -Inf or Inf)
+cat("Any exact 0 values?", any(data_clean$refined_div_condition == 0, na.rm = TRUE), "\n")
+cat("Any exact 1 values?", any(data_clean$refined_div_condition == 1, na.rm = TRUE), "\n")
+
+# Apply logit transformation using qlogis()
+data_clean$refined_div_condition_logit <- qlogis(data_clean$refined_div_condition)
+
+cat("\nRange of logit transformed diversity:", 
+    range(data_clean$refined_div_condition_logit, na.rm = TRUE), "\n")
+cat("Summary of logit transformed diversity:\n")
+summary(data_clean$refined_div_condition_logit)
+```
+
+#Group Comparisons
+```{r}
+# Calculate group means and SDs for all variables
+data_group <- data_clean %>%
+  group_by(bot_type) %>%
+  summarise(
+    # Variables available to ALL participants
+    Creative_Self_Efficacy_mean = mean(Creative_Self_Efficacy, na.rm = TRUE),
+    Creative_Self_Efficacy_sd = sd(Creative_Self_Efficacy, na.rm = TRUE),
+    
+    Propensity_to_Trust_Technology_mean = mean(Propensity_to_Trust_Technology, na.rm = TRUE),
+    Propensity_to_Trust_Technology_sd = sd(Propensity_to_Trust_Technology, na.rm = TRUE),
+    
+    # NASA-TLX (if available to all)
+    NASA_TLX_mean = mean(rowMeans(select(cur_data(), starts_with("tlx")), na.rm = TRUE), na.rm = TRUE),
+    NASA_TLX_sd = sd(rowMeans(select(cur_data(), starts_with("tlx")), na.rm = TRUE), na.rm = TRUE),
+    
+    # UX-related constructs (only for chatbot users, will be NA for control)
+    Perceived_Technology_Agency_mean = mean(Perceived_Technology_Agency, na.rm = TRUE),
+    Perceived_Technology_Agency_sd = sd(Perceived_Technology_Agency, na.rm = TRUE),
+    
+    Performance_Expectancy_mean = mean(Performance_Expectancy, na.rm = TRUE),
+    Performance_Expectancy_sd = sd(Performance_Expectancy, na.rm = TRUE),
+    
+    Effort_Expectancy_mean = mean(Effort_Expectancy, na.rm = TRUE),
+    Effort_Expectancy_sd = sd(Effort_Expectancy, na.rm = TRUE),
+    
+    Hedonic_Motivation_mean = mean(Hedonic_Motivation, na.rm = TRUE),
+    Hedonic_Motivation_sd = sd(Hedonic_Motivation, na.rm = TRUE),
+    
+    Perceived_Ownership_mean = mean(Perceived_Ownership, na.rm = TRUE),
+    Perceived_Ownership_sd = sd(Perceived_Ownership, na.rm = TRUE),
+    
+    AI_experience_mean = mean(ai1, na.rm = TRUE),
+    AI_experience_sd = sd(ai1, na.rm = TRUE),
+    
+    IdeaQuality_mean = mean(Idea_quality, na.rm = TRUE),
+    IdeaQuality_sd = sd(Idea_quality, na.rm = TRUE),
+    
+    #Embeddings based on refined ideas
+    refined_div_allideas_mean = mean(refined_div_allideas, na.rm = TRUE),
+    refined_div_allideas_sd = sd(refined_div_allideas, na.rm = TRUE),
+    refined_div_condition_mean = mean(refined_div_condition, na.rm = TRUE),
+    refined_div_condition_sd = sd(refined_div_condition, na.rm = TRUE),
+    
+    #Logit transformed diversity
+    refined_div_condition_logit_mean = mean(refined_div_condition_logit, na.rm = TRUE),
+    refined_div_condition_logit_sd = sd(refined_div_condition_logit, na.rm = TRUE),
+    
+    #Embeddings based on initial ideas
+    ideas_div_allideas_mean = mean(idea_div_allideas, na.rm = TRUE),
+    ideas_div_allideas_sd = sd(idea_div_allideas, na.rm = TRUE),
+    ideas_div_condition_mean = mean(idea_div_condition, na.rm = TRUE),
+    ideas_div_condition_sd = sd(idea_div_condition, na.rm = TRUE),
+    
+
+    Count_Observations = n()
+  ) %>%
+  ungroup()
+
+# View the grouped data
+print(data_group)
+
+write.csv(data_group, data_path("data_group_summary.csv"), row.names = FALSE)
+```
+
+#Correlation Matrix
+```{r}
+# Create correlation matrix with your study variables
+correlation_matrix <- data_clean %>%
+  dplyr::select(c(
+    # Questionnaire constructs
+    Idea_quality,
+    Perceived_Ownership,
+    refined_div_condition,
+    Creative_Self_Efficacy,
+    Propensity_to_Trust_Technology,
+    NASA_TLX,
+    Perceived_Technology_Agency,
+    Performance_Expectancy,
+    Effort_Expectancy,
+    Hedonic_Motivation,
+    LLM_experience,
+    Age,
+    total_study_time_seconds
+  ))
+
+# Create custom variable names for display
+var_names <- c(
+  "1. Idea Quality",
+  "2. Perceived Ownership", 
+  "3. Refined Sim Condition Ideas",
+  "4. Creative Self-Efficacy",
+  "5. Propensity to Trust Technology",
+  "6. NASA TLX",
+  "7. Perceived Technology Agency",
+  "8. Performance Expectancy",
+  "9. Effort Expectancy",
+  "10. Hedonic Motivation",
+  "11. LLM Experience",
+  "12. Age",
+  "13. Total Study Time (Seconds)"
+)
+
+# Calculate correlations with significance tests
+cor_result <- corr.test(correlation_matrix, use = "complete")
+cor_matrix <- cor_result$r
+p_matrix <- cor_result$p
+
+# Create significance indicators
+sig_matrix <- ifelse(p_matrix < 0.01, "**", 
+                    ifelse(p_matrix < 0.05, "*", ""))
+
+# Format correlation matrix for display
+cor_display <- cor_matrix
+diag(cor_display) <- NA  # Remove diagonal
+cor_display[lower.tri(cor_display)] <- NA  # Remove lower triangle
+
+# Create formatted correlation strings
+cor_formatted <- matrix("", nrow = nrow(cor_matrix), ncol = ncol(cor_matrix))
+for(i in seq_len(nrow(cor_matrix))) {
+  for(j in seq_len(ncol(cor_matrix))) {
+    if(!is.na(cor_display[i,j])) {
+      cor_formatted[i,j] <- paste0(sprintf("%.2f", cor_matrix[i,j]), sig_matrix[i,j])
+    } else if(i == j) {
+      cor_formatted[i,j] <- "---"
+    }
+  }
+}
+
+# Set row and column names
+rownames(cor_formatted) <- var_names
+colnames(cor_formatted) <- seq_len(ncol(cor_matrix))
+
+# Calculate descriptive statistics
+means <- sapply(correlation_matrix, mean, na.rm = TRUE)
+sds <- sapply(correlation_matrix, sd, na.rm = TRUE)
+
+# Create descriptive stats table
+desc_stats <- data.frame(
+  Variable = var_names,
+  M = sprintf("%.2f", means),
+  SD = sprintf("%.2f", sds),
+  stringsAsFactors = FALSE
+)
+
+# APA-style correlation table (display only, no file saved)
+# Use descriptive variable names as column headers for the APA table
+colnames(correlation_matrix) <- var_names
+
+apaTables::apa.cor.table(
+  correlation_matrix,
+  table.number = NA,
+  filename = "Correlations"
+)
+
+# Note: apaTables already includes M and SD in the correlation table; no file is saved
+```
+
+# Reliability Analysis
+# Creative Self-Efficacy
+```{r}
+CreativeSelfEfficacy <- data_clean %>%
+  dplyr::select(., c(cse1, cse2, cse3))
+alpha_CreativeSelfEfficacy <- psych::alpha(CreativeSelfEfficacy, check.keys = TRUE)
+print(alpha_CreativeSelfEfficacy)
+```
+
+# Perceived Cognitive Workload
+```{r}
+NASATLX <- data_clean %>%
+  dplyr::select(., c(tlx1, tlx2))
+
+# Inter-item Pearson correlation (2-item scale)
+nasatlx_test <- cor.test(NASATLX$tlx1, NASATLX$tlx2, method = "pearson")
+print(nasatlx_test)
+```
+
+# Performance Expectancy
+```{r}
+PerformanceExpectancy <- data_clean %>%
+  dplyr::select(., c(pe1, pe2, pe3))
+alpha_PerformanceExpectancy <- psych::alpha(PerformanceExpectancy, check.keys = TRUE)
+print(alpha_PerformanceExpectancy)
+```
+
+# Effort Expectancy
+```{r}
+EffortExpectancy <- data_clean %>%
+  dplyr::select(., c(ee1, ee2, ee3, ee4))
+alpha_EffortExpectancy <- psych::alpha(EffortExpectancy, check.keys = TRUE)
+print(alpha_EffortExpectancy)
+```
+
+# Hedonic Motivation
+```{r}
+HedonicMotivation <- data_clean %>%
+  dplyr::select(., c(hm1, hm2, hm3))
+alpha_HedonicMotivation <- psych::alpha(HedonicMotivation, check.keys = TRUE)
+print(alpha_HedonicMotivation)
+```
+
+# Perceived Ownership
+```{r}
+PerceivedOwnership <- data_clean %>%
+  dplyr::select(., c(io1, io2, io3, io4, io5))
+alpha_PerceivedOwnership <- psych::alpha(PerceivedOwnership, check.keys = TRUE)
+print(alpha_PerceivedOwnership)
+```
+
+# Reliability Summary
+```{r}
+# Cronbach's alpha for multi-item scales (excluding 2-item NASA-TLX)
+reliability_summary <- data.frame(
+  Scale = c(
+           "Performance Expectancy", "Effort Expectancy", "Hedonic Motivation",
+            "Perceived Ownership"),
+  Cronbachs_Alpha = c(
+    alpha_PerformanceExpectancy$total$raw_alpha,
+    alpha_EffortExpectancy$total$raw_alpha,
+    alpha_HedonicMotivation$total$raw_alpha,
+    alpha_PerceivedOwnership$total$raw_alpha
+  ),
+  Items = c(3, 4, 3, 5)
+)
+
+knitr::kable(reliability_summary, digits = 3, caption = "Cronbach's Alpha for Multi-item Scales")
+
+# Inter-item Pearson r for NASA-TLX (2 items)
+nasatlx_test <- cor.test(data_clean$tlx1, data_clean$tlx2, method = "pearson")
+nasatlx_reliability <- data.frame(
+  Scale = "NASA-TLX (2 items)",
+  Pearson_r = round(unname(nasatlx_test$estimate), 3),
+  CI_low = round(nasatlx_test$conf.int[1], 3),
+  CI_high = round(nasatlx_test$conf.int[2], 3),
+  p_value = signif(nasatlx_test$p.value, 3)
+)
+knitr::kable(nasatlx_reliability, digits = 3, caption = "Inter-item Pearson correlation for NASA-TLX")
+```
+
+
+#Rater reliability: ICC
+```{r}
+# More comprehensive analysis
+rater_data <- data.frame(
+  Rater1 = as.numeric(data_clean$Rater1),
+  Rater2 = as.numeric(data_clean$Rater2),
+  Rater3 = as.numeric(data_clean$Rater3),
+  Rater4 = as.numeric(data_clean$Rater4)
+)
+
+# Calculate ICC
+icc_result <- ICC(rater_data)
+print(icc_result)
+
+#ICC3,k relevant in our context
+```
+
+## Build Models for Diagnostics
+```{r build-models-diagnostics}
+# Set factor levels for bot_type
+data_clean$bot_type <- factor(data_clean$bot_type,
+                            levels = c("feedback", "suggestion", "improvement", "vanilla", "control"))
+
+# Model 1: Idea Quality (Linear Model)
+quality_model <- lm(Average ~ bot_type, data = data_clean)
+
+# Model 2: Idea Diversity (Linear Model)
+DIV_model <- lm(refined_div_condition ~ bot_type, data = data_clean)
+
+# Model 2b: Idea Diversity - Logit Transformed (Linear Model)
+DIV_logit_model <- lm(refined_div_condition_logit ~ bot_type, data = data_clean)
+
+# Model 3: Perceived Ownership (Linear Model)
+PO_model <- lm(Perceived_Ownership ~ bot_type, data = data_clean)
+```
+
+## Assumption Tests: Linear Model (Idea Quality)
+```{r assumptions-quality}
+Model_Quality <- check_model(
+  quality_model)
+Model_Quality
+check_heteroscedasticity(quality_model)
+check_normality(quality_model)
+
+# Save the full check_model composite plot as PDF (large enough for readability)
+pdf(fig_path("diagnostics_quality_full_check_model.pdf"), width = 14, height = 6)
+plot(Model_Quality)
+dev.off()
+```
+
+## Assumption Tests: Linear Model (Idea Diversity)
+```{r assumptions-diversity}
+Model_DIV <- check_model(
+  DIV_model)
+Model_DIV
+
+check_heteroscedasticity(DIV_model)
+check_normality(DIV_model)
+
+# Save the full check_model composite plot as PDF (large enough for readability)
+pdf(fig_path("diagnostics_diversity_full_check_model.pdf"), width = 14, height = 10)
+plot(Model_DIV)
+dev.off()
+
+# Create combined plot with 5 panels: 4 from original + 1 logit homogeneity
+Model_DIV_pp <- check_model(DIV_model, check = "pp_check")
+Model_DIV_homog <- check_model(DIV_model, check = "homogeneity")
+Model_DIV_outliers <- check_model(DIV_model, check = "outliers")
+Model_DIV_qq <- check_model(DIV_model, check = "qq")
+Model_DIV_logit_homog <- check_model(DIV_logit_model, check = "homogeneity")
+
+pdf(fig_path("diagnostics_diversity_with_logit_homogeneity.pdf"), width = 14, height = 10)
+gridExtra::grid.arrange(
+  plot(Model_DIV_pp),
+  plot(Model_DIV_homog) + labs(title = "Homogeneity of Variance (Original)"),
+  plot(Model_DIV_outliers),
+  plot(Model_DIV_qq),
+  plot(Model_DIV_logit_homog) + labs(title = "Homogeneity of Variance (Logit-Transformed)"),
+  ncol = 2,
+  nrow = 3
+)
+dev.off()
+```
+
+## Assumption Tests: Linear Model (Idea Diversity - Logit Transformed)
+```{r assumptions-diversity-logit}
+Model_DIV_logit <- check_model(
+  DIV_logit_model)
+Model_DIV_logit
+check_heteroscedasticity(DIV_logit_model)
+
+# Save the full check_model composite plot as PDF (large enough for readability)
+pdf(fig_path("diagnostics_diversity_logit_full_check_model.pdf"), width = 14, height = 10)
+plot(Model_DIV_logit)
+dev.off()
+```
+
+## Assumption Tests: Linear Model (Perceived Ownership)
+```{r assumptions-ownership}
+Model_PO <- check_model(
+  PO_model)
+Model_PO
+
+check_heteroscedasticity(PO_model)
+check_normality(PO_model)
+# Save the full check_model composite plot as PDF (large enough for readability)
+pdf(fig_path("diagnostics_ownership_full_check_model.pdf"), width = 10, height = 7)
+plot(Model_PO)
+dev.off()
+```
+
+
+#H1: Idea quality significantly improves when participants interact with (a) a suggestion model LLM, (b) a question model LLM, (c) a model-led LLM or (d) a vanilla LLM compared to a control condition without LLM support.
+```{r}
+data_clean$bot_type <- factor(data_clean$bot_type,
+                            levels = c("feedback", "suggestion", "improvement", "vanilla", "control"))
+levels(data_clean$bot_type)
+
+# Fit the linear model
+quality_model <- lm(Average ~ bot_type, data = data_clean)
+
+# Summary and ANOVA
+summary(quality_model)
+anova(quality_model)
+
+# Estimate marginal means
+quality_emm <- emmeans(quality_model, specs = ~ bot_type)
+
+# Define contrasts for hypothesis testing
+# Contrasts: feedback (Question-mode), suggestion (Suggestion-mode), improvement (Model-led), vanilla, control
+contrast_list <- list(
+  H1a = c(1,  0,  0,  0, -1),  
+  H1b = c(0, 1,  0,  0, -1),
+  H1c = c(0,  0,  1,  0, -1),
+  H1d = c( 0, 0,  0,  1, -1)
+)
+
+# Get Holm-adjusted p-values
+contrast_adjusted <- contrast(quality_emm, method = contrast_list, adjust = "holm", infer = TRUE, side = ">")
+print("Holm-adjusted p-values:")
+print(contrast_adjusted)
+
+# Get unadjusted confidence intervals
+contrast_unadjusted <- contrast(quality_emm, method = contrast_list, adjust = "none", infer = TRUE, side = ">")
+print("Unadjusted confidence intervals:")
+print(contrast_unadjusted)
+
+# Calculate effect sizes (Cohen's d)
+# Get the residual standard deviation from the model
+pooled_sd <- sigma(quality_model)
+
+# Get contrast results
+contrast_results <- contrast(quality_emm, method = contrast_list, adjust = "holm")
+
+
+eff_size(quality_emm, method = contrast_list, sigma = pooled_sd, edf = df.residual(quality_model))
+```
+
+#H2:The diversity of the idea pool is higher when participants interact with a 
+question mode LLM compared to (a) a model-led LLM and (b) a vanilla LLM.
+
+#H3:The diversity of the idea pool is higher when participants interact with a 
+suggestion mode LLM compared to (a) a model-led LLM and (b) a vanilla LLM.
+
+```{r}
+data_clean$bot_type <- factor(data_clean$bot_type,
+                            levels = c("feedback", "suggestion", "improvement", "vanilla", "control"))
+levels(data_clean$bot_type)
+
+# Fit the linear model
+DIV_model <- lm(refined_div_condition ~ bot_type, data = data_clean)
+
+# Summary and ANOVA
+summary(DIV_model)
+anova(DIV_model)
+
+# Estimate marginal means
+SIM_emm <- emmeans(DIV_model, specs = ~ bot_type)
+
+# Define contrasts for hypothesis testing
+# Contrasts: feedback (Question-mode), suggestion (Suggestion-mode), improvement (Model-led), vanilla, control
+contrast_list <- list(
+  H2a = c(1,  0,  -1,  0, 0),  
+  H2b = c(1, 0,  0,  -1, 0),
+  H3a = c(0,  1,  -1,  0, 0),
+  H3b = c( 0, 1,  0,  -1, 0)
+)
+
+# Get Holm-adjusted p-values
+contrast_adjusted <- contrast(SIM_emm, method = contrast_list, adjust = "holm", infer = TRUE, side = ">")
+print("Holm-adjusted p-values:")
+print(contrast_adjusted)
+
+# Get unadjusted confidence intervals  
+contrast_unadjusted <- contrast(SIM_emm, method = contrast_list, adjust = "none", infer = TRUE, side = ">")
+print("Unadjusted confidence intervals:")
+print(contrast_unadjusted)
+
+# Calculate effect sizes (Cohen's d) for H2 & H3
+eff_size(SIM_emm, method = contrast_list, sigma = sigma(DIV_model), edf = df.residual(DIV_model))
+```
+
+#H2 & H3 with Logit Transformed Diversity: Robustness Check
+
+The following analysis replicates H2 and H3 using logit-transformed diversity scores to assess whether results are robust to this transformation.
+
+```{r}
+data_clean$bot_type <- factor(data_clean$bot_type,
+                            levels = c("feedback", "suggestion", "improvement", "vanilla", "control"))
+levels(data_clean$bot_type)
+
+# Fit the linear model with logit-transformed diversity
+DIV_logit_model <- lm(refined_div_condition_logit ~ bot_type, data = data_clean)
+
+# Summary and ANOVA
+summary(DIV_logit_model)
+anova(DIV_logit_model)
+
+# Estimate marginal means
+SIM_logit_emm <- emmeans(DIV_logit_model, specs = ~ bot_type)
+
+# Define contrasts for hypothesis testing (same as original H2 & H3)
+# Contrasts: feedback (Question-mode), suggestion (Suggestion-mode), improvement (Model-led), vanilla, control
+contrast_list <- list(
+  H2a = c(1,  0,  -1,  0, 0),  
+  H2b = c(1, 0,  0,  -1, 0),
+  H3a = c(0,  1,  -1,  0, 0),
+  H3b = c( 0, 1,  0,  -1, 0)
+)
+
+# Get Holm-adjusted p-values
+contrast_adjusted_logit <- contrast(SIM_logit_emm, method = contrast_list, adjust = "holm", infer = TRUE, side = ">")
+print("Holm-adjusted p-values (logit transformed):")
+print(contrast_adjusted_logit)
+
+# Get unadjusted confidence intervals  
+contrast_unadjusted_logit <- contrast(SIM_logit_emm, method = contrast_list, adjust = "none", infer = TRUE, side = ">")
+print("Unadjusted confidence intervals (logit transformed):")
+print(contrast_unadjusted_logit)
+
+# Calculate effect sizes (Cohen's d) for H2 & H3 with logit transformed data
+eff_size(SIM_logit_emm, method = contrast_list, sigma = sigma(DIV_logit_model), edf = df.residual(DIV_logit_model))
+```
+
+#H4: The perceived idea ownership is higher when participants interact with a question mode LLM compared to (a) a model-led LLM and (b) a vanilla LLM
+#H5: The perceived idea ownership is higher when participants interact with a suggestion mode LLM compared to (a) a model-led LLM and (b) a vanilla LLM 
+```{r}
+data_clean$bot_type <- factor(data_clean$bot_type,
+                            levels = c("feedback", "suggestion", "improvement", "vanilla", "control"))
+levels(data_clean$bot_type)
+
+# Fit the linear model
+PO_model <- lm(Perceived_Ownership ~ bot_type, data = data_clean)
+
+# Summary and ANOVA
+summary(PO_model)
+anova(PO_model)
+
+# Estimate marginal means
+PO_emm <- emmeans(PO_model, specs = ~ bot_type)
+
+# Define contrasts for hypothesis testing
+# Contrasts: feedback (Question-mode), suggestion (Suggestion-mode), improvement (Model-led), vanilla, control
+contrast_list <- list(
+  H4a = c(1,  0,  -1,  0, 0),  
+  H4b = c(1, 0,  0,  -1, 0),
+  H5a = c(0,  1,  -1,  0, 0),
+  H5b = c(0, 1,  0,  -1, 0)
+)
+
+# Get Holm-adjusted p-values
+contrast_adjusted <- contrast(PO_emm, method = contrast_list, adjust = "holm", infer = TRUE, side = ">")
+print("Holm-adjusted p-values:")
+print(contrast_adjusted)
+
+# Get unadjusted confidence intervals  
+contrast_unadjusted <- contrast(PO_emm, method = contrast_list, adjust = "none", infer = TRUE, side = ">")
+print("Unadjusted confidence intervals:")
+print(contrast_unadjusted)
+
+# Calculate effect sizes (Cohen's d) for H4 & H5
+eff_size(PO_emm, method = contrast_list, sigma = sigma(PO_model), edf = df.residual(PO_model))
+```
+
+#Explorative Analyses
+##Inter-Rater Reliability: Cohen's Kappa for Elaboration Depth
+```{r}
+# Calculate Cohen's Kappa for inter-rater reliability
+elaboration_rater_data <- elaboration_data %>%
+  mutate(
+    Rater1 = as.numeric(Rater1),
+    Rater2 = as.numeric(Rater2)
+  ) %>%
+  filter(!is.na(Rater1) & !is.na(Rater2)) %>%
+  select(Rater1, Rater2)
+
+# Calculate Cohen's Kappa
+kappa_result <- psych::cohen.kappa(elaboration_rater_data)
+print(kappa_result)
+
+# Additional information
+print(table(elaboration_rater_data$Rater1, elaboration_rater_data$Rater2))
+
+# Calculate percent agreement
+agreement <- sum(elaboration_rater_data$Rater1 == elaboration_rater_data$Rater2) / nrow(elaboration_rater_data) * 100
+```
+
+##Elaboration Depth
+```{r}
+# First, clean and prepare the elaboration data
+elaboration_descriptives <- elaboration_data %>%
+  mutate(
+    Overall = as.numeric(Overall),
+    participant_id = as.character(participant_id)
+  ) %>%
+  filter(!is.na(Overall)) %>%
+  select(participant_id, Condition, Overall)
+
+# Cross-tabulation: absolute frequencies
+freq_table <- table(elaboration_descriptives$Condition, elaboration_descriptives$Overall)
+print(freq_table)
+
+# Cross-tabulation: percentages within conditions (row percentages)
+perc_table_rows <- round(prop.table(freq_table, margin = 1) * 100, 1)
+print(perc_table_rows)
+
+# Cross-tabulation: percentages within scores (column percentages) 
+perc_table_cols <- round(prop.table(freq_table, margin = 2) * 100, 1)
+print(perc_table_cols)
+
+# Overall percentages
+perc_table_total <- round(prop.table(freq_table) * 100, 1)
+print(perc_table_total)
+
+# Summary table with totals
+summary_table <- elaboration_descriptives %>%
+  group_by(Condition) %>%
+  summarise(
+    Gesamt_n = n(),
+    .groups = 'drop'
+  )
+print(summary_table)
+
+kable(perc_table_rows, 
+      caption = "Percentages",
+      digits = 1)
+```
+
+##Linking Elaboration Depth with Quantitative Outcomes
+```{r}
+# Prepare elaboration data for merging (already anonymized)
+elaboration_for_merge <- elaboration_data %>%
+  mutate(
+    Rater1 = as.numeric(Rater1),
+    Rater2 = as.numeric(Rater2),
+    Overall = as.numeric(Overall),
+    participant_id = as.character(participant_id)
+  ) %>%
+  filter(!is.na(Overall)) %>%
+  select(participant_id, Elaboration_Depth = Overall)
+
+# Merge elaboration depth with main quantitative data
+data_with_elaboration <- data_clean %>%
+  left_join(elaboration_for_merge, by = "participant_id")
+
+# Show distribution of elaboration depth in merged data
+print(table(data_with_elaboration$Elaboration_Depth, useNA = "ifany"))
+```
+
+###Correlational Analysis: Elaboration Depth and Quantitative Outcomes
+```{r}
+# Filter to participants with elaboration data
+data_corr <- data_with_elaboration %>%
+  filter(!is.na(Elaboration_Depth))
+
+# Correlations with main dependent variables
+cor_quality <- cor.test(data_corr$Elaboration_Depth, data_corr$Average, 
+                        method = "pearson", use = "complete.obs")
+cor_ownership <- cor.test(data_corr$Elaboration_Depth, data_corr$Perceived_Ownership, 
+                          method = "pearson", use = "complete.obs")
+cor_diversity <- cor.test(data_corr$Elaboration_Depth, data_corr$refined_div_condition, 
+                          method = "pearson", use = "complete.obs")
+
+# Summary table
+correlation_summary <- data.frame(
+  Variable = c("Idea Quality", "Perceived Ownership", "Idea Diversity"),
+  r = c(round(cor_quality$estimate, 3), round(cor_ownership$estimate, 3), 
+        round(cor_diversity$estimate, 3)),
+  CI_lower = c(round(cor_quality$conf.int[1], 3), round(cor_ownership$conf.int[1], 3),
+               round(cor_diversity$conf.int[1], 3)),
+  CI_upper = c(round(cor_quality$conf.int[2], 3), round(cor_ownership$conf.int[2], 3),
+               round(cor_diversity$conf.int[2], 3)),
+  p_value = c(format.pval(cor_quality$p.value, digits = 3), 
+              format.pval(cor_ownership$p.value, digits = 3),
+              format.pval(cor_diversity$p.value, digits = 3)),
+  n = c(sum(complete.cases(data_corr$Elaboration_Depth, data_corr$Average)),
+        sum(complete.cases(data_corr$Elaboration_Depth, data_corr$Perceived_Ownership)),
+        sum(complete.cases(data_corr$Elaboration_Depth, data_corr$refined_div_condition)))
+)
+
+kable(correlation_summary, 
+      caption = "Correlations between Elaboration Depth and Main DVs",
+      col.names = c("Outcome Variable", "r", "CI Lower", "CI Upper", "p-value", "n"))
+```
+
+## Differences in cognitive load: Human-Led vs. Model-Led & Vanilla
+```{r}
+data_clean$bot_type <- factor(data_clean$bot_type,
+                            levels = c("feedback", "suggestion", "improvement", "vanilla", "control"))
+levels(data_clean$bot_type)
+
+# Fit the linear model
+NASA_model <- lm(NASA_TLX ~ bot_type, data = data_clean)
+
+# Summary and ANOVA
+summary(NASA_model)
+anova(NASA_model)
+
+# Estimate marginal means
+NASA_emm <- emmeans(NASA_model, specs = ~ bot_type)
+
+# Define contrasts for hypothesis testing
+# Contrasts: feedback (Question-mode), suggestion (Suggestion-mode), improvement (Model-led), vanilla, control
+contrast_list <- list(
+  E1 = c(1,  0,  -1,  0, 0),  
+  E2 = c(1, 0,  0,  -1, 0),
+  E3 = c(0,  1,  -1,  0, 0),
+  E4 = c(0, 1,  0,  -1, 0)
+)
+
+# Get Holm-adjusted p-values
+contrast_adjusted <- contrast(NASA_emm, method = contrast_list, adjust = "holm", infer = TRUE)
+print("Holm-adjusted p-values:")
+print(contrast_adjusted)
+
+# Get unadjusted confidence intervals  
+contrast_unadjusted <- contrast(NASA_emm, method = contrast_list, adjust = "none", infer = TRUE)
+print("Unadjusted confidence intervals:")
+print(contrast_unadjusted)
+
+# Calculate effect sizes (Cohen's d)
+eff_size(NASA_emm, method = contrast_list, sigma = sigma(NASA_model), edf = df.residual(NASA_model))
+```
+
+
+## Simple regression: NASA-TLX predicting Perceived Idea Ownership
+```{r}
+# Simple linear regression
+ownership_nasa_model <- lm(Perceived_Ownership ~ NASA_TLX, data = data_clean)
+summary(ownership_nasa_model)
+confint(ownership_nasa_model)
+
+model_std <- lm(scale(Perceived_Ownership) ~ scale(NASA_TLX), data = data_clean)
+summary(model_std)
+```
+
+# WITHIN-SUBJECT ANALYSIS: Initial vs Refined Ideas by Bot Type
+## Descriptives
+```{r}
+# Prepare data for within-subject analysis with renamed bot types
+analysis_data <- data_clean %>%
+  filter(bot_type %in% c("feedback", "suggestion", "improvement")) %>%
+  select(participant_id, bot_type, 
+         initial_diversity = idea_div_condition,
+         refined_to_centroid = refined_div_to_initial_centroid) %>%
+  filter(!is.na(initial_diversity) & !is.na(refined_to_centroid)) %>%
+  mutate(
+    # Within-subject change (pre-post difference)
+    diversity_change = refined_to_centroid - initial_diversity,
+    
+    # Rename bot types for better presentation (two-line labels)
+    bot_type_renamed = case_when(
+      bot_type == "feedback"    ~ "Question-\nmode",
+      bot_type == "improvement" ~ "Model-\nled", 
+      bot_type == "suggestion"  ~ "Suggestion-\nmode",
+      TRUE ~ as.character(bot_type)
+    ),
+    # Factor levels for renamed labels (display order)
+    bot_type_renamed = factor(bot_type_renamed, 
+                             levels = c("Question-\nmode", "Suggestion-\nmode", "Model-\nled")),
+    
+    # Factor levels for original bot_type (analysis order)
+    bot_type = factor(bot_type, levels = c("feedback", "suggestion", "improvement"))
+  )
+
+print(table(analysis_data$bot_type_renamed))
+
+# Summary statistics by condition (using renamed bot types)
+change_summary <- analysis_data %>%
+  group_by(bot_type_renamed) %>%
+  summarise(
+    n = n(),
+    mean_initial = mean(initial_diversity, na.rm = TRUE),
+    mean_refined_to_centroid = mean(refined_to_centroid, na.rm = TRUE), 
+    mean_change = mean(diversity_change, na.rm = TRUE),
+    sd_change = sd(diversity_change, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+cat("\n=== WITHIN-SUBJECT CHANGE SUMMARY ===\n")
+print(change_summary)
+```
+
+## Exploratory Mixed-Effects Models: Initial Diversity vs Refined Distance to Centroid
+```{r}
+lmm_diversity_data <- data_clean %>%
+  dplyr::select(
+    participant_id,
+    bot_type,
+    # DV components
+    idea_div_condition,
+    refined_div_to_initial_centroid,
+    # Covariates
+    # Keep only NASA-TLX mental effort (tlx2)
+    tlx2
+  ) %>%
+  tidyr::pivot_longer(
+    cols = c(idea_div_condition, refined_div_to_initial_centroid),
+    names_to = "time",
+    values_to = "diversity_score"
+  ) %>%
+  dplyr::mutate(
+    participant_id = factor(participant_id),
+    bot_type = factor(as.character(bot_type)),
+    time = factor(time,
+                  levels = c("idea_div_condition", "refined_div_to_initial_centroid"),
+                  labels = c("Initial", "Refined to Centroid"))
+  ) %>%
+  dplyr::filter(!is.na(bot_type)) %>%
+  # Keep only multi-timepoint bot conditions
+  dplyr::filter(bot_type %in% c("feedback", "improvement", "suggestion")) %>%
+  tidyr::drop_na(diversity_score)
+
+m1 <- lmerTest::lmer(
+  diversity_score ~ bot_type * time + (1 | participant_id),
+  data = lmm_diversity_data,
+  REML = FALSE
+)
+summary(m1)
+confint(m1, level = 0.95, method = "Wald")
+anova(m1)
+
+emm_time_by_bot <- emmeans(m1, ~ time | bot_type)
+change_by_bot <- contrast(emm_time_by_bot, "revpairwise")  # Refined − Initial per bot
+summary(change_by_bot, adjust = "holm", infer = TRUE)
+
+
+# EMMs for the 3x2 cells
+emm_cells <- emmeans(m1, ~ bot_type * time)
+
+# All pairwise differences in CHANGE between bots:
+did_all <- contrast(
+  emm_cells,
+  interaction = list("pairwise", "revpairwise")  # bot diffs × (Refined−Initial)
+)
+
+summary(did_all, adjust = "holm", infer = TRUE)   # pairwise change comparisons with multiplicity control
+```
+
+# WITHIN-SUBJECT VISUALIZATION: Before-After Plot
+```{r}
+# Reshape data for before-after plot with renamed bot types
+before_after_data <- analysis_data %>%
+  pivot_longer(cols = c(initial_diversity, refined_to_centroid),
+               names_to = "timepoint", 
+               values_to = "diversity") %>%
+  mutate(
+    timepoint = factor(timepoint, 
+                      levels = c("initial_diversity", "refined_to_centroid"),
+                      labels = c("Initial Ideas", "Refined Ideas")),
+    participant_id = factor(participant_id)
+  )
+
+# Calculate means for overlay using renamed bot types
+means_data <- before_after_data %>%
+  group_by(bot_type_renamed, timepoint) %>%
+  summarise(mean_diversity = mean(diversity, na.rm = TRUE), .groups = 'drop')
+
+# Publication-ready before-after plot
+p_within_subject <- ggplot(before_after_data, aes(x = timepoint, y = diversity, group = participant_id)) +
+  
+  # Individual trajectories (light lines)
+  geom_line(alpha = 0.2, color = "gray70", size = 0.2) +
+  geom_point(alpha = 0.3, size = 0.6, color = "gray70") +
+  
+  # Mean trajectories (thick lines)
+  geom_line(data = means_data, aes(x = timepoint, y = mean_diversity, group = bot_type_renamed, color = bot_type_renamed),
+            size = 1.5, inherit.aes = FALSE) +
+  geom_point(data = means_data, aes(x = timepoint, y = mean_diversity, color = bot_type_renamed),
+             size = 3, inherit.aes = FALSE) +
+  
+  # Reference line
+  geom_hline(yintercept = mean(analysis_data$initial_diversity), 
+             linetype = "dashed", alpha = 0.4, color = "black", size = 0.5) +
+  
+  # Bot colors (use global discrete palette)
+  scale_color_discrete(name = "Bot Type") +
+  
+  # Use facet_grid instead of facet_wrap for better spacing control
+  facet_grid(. ~ bot_type_renamed) +
+  
+  # Clean labels
+  labs(
+    x = "Idea Stage",
+    y = "Diversity Score"
+  ) +
+  
+  # Publication theme
+  theme_minimal() +
+  theme(
+    # Remove titles
+    plot.title = element_blank(),
+    plot.subtitle = element_blank(),
+    plot.caption = element_blank(),
+    
+    # Facet labels with reduced margins
+    strip.text = element_text(size = 11, face = "bold", color = "black",
+                             margin = margin(2, 2, 2, 2)),
+    strip.background = element_blank(),
+    
+    # Axis text
+    axis.text = element_text(size = 10, color = "black"),
+    axis.title = element_text(size = 11, face = "bold", color = "black"),
+    
+    # Remove legend completely
+    legend.position = "none",
+    
+    # Panel spacing - very tight spacing between panels
+    panel.spacing.x = unit(0.01, "lines"),
+    panel.spacing.y = unit(0.01, "lines"),
+    
+    # Grid
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_line(color = "gray95", size = 0.3),
+    
+    # Minimal margins to make panels bigger
+    plot.margin = margin(5, 5, 5, 5)
+  )
+
+print(p_within_subject)
+
+# Save with bigger dimensions to make individual panels larger
+# Also save as PDF for LaTeX
+ggsave(fig_path("within_subject_change_publication.pdf"), p_within_subject, 
+       width = 12, height = 4.5, device = "pdf", bg = "white")
+```
+
+
+
+#Violin Plot Dependent Variables 
+```{r}
+idea_quality_col <- "Average"
+refined_div_col <- "refined_div_condition"
+
+data_clean <- data_clean %>%
+  mutate(
+    !!idea_quality_col := as.numeric(!!sym(idea_quality_col)),
+    !!refined_div_col := as.numeric(!!sym(refined_div_col)),
+    Perceived_Ownership = as.numeric(Perceived_Ownership)
+  )
+
+# --- Conditions and approved colors ---
+# Standardized order for all graphics: Question-mode, Suggestion-mode, Model-led, Vanilla, Control
+desired_levels <- c("feedback", "suggestion", "improvement", "vanilla", "control")
+present_levels <- desired_levels[desired_levels %in% unique(as.character(data_clean$bot_type))]
+
+data_clean <- data_clean %>%
+  mutate(bot_type = factor(as.character(bot_type), levels = present_levels))
+
+
+# Pretty labels for bot types (single-line for non-boxplot graphics)
+# Note: Using the global label_map defined earlier, no need to redefine
+
+
+
+# --- Long data for the three DVs ---
+dv_vars <- c(idea_quality_col, refined_div_col, "Perceived_Ownership")
+dv_labels <- setNames(
+  c("Idea Quality", "Idea Diversity", "Perceived Idea Ownership"),
+  dv_vars
+)
+
+plot_data <- data_clean %>%
+  select(bot_type, all_of(dv_vars)) %>%
+  pivot_longer(cols = all_of(dv_vars), names_to = "dv", values_to = "score") %>%
+  filter(!is.na(bot_type), !is.na(score)) %>%
+  mutate(
+    # Limit Perceived Ownership to 0-7 range
+    score = ifelse(dv == "Perceived_Ownership", pmin(pmax(score, 0), 7), score),
+    dv = factor(dv, levels = dv_vars, labels = dv_labels[dv_vars])
+  )
+
+# --- Violin plot (facetted) ---
+p_violin <- ggplot(plot_data, aes(x = bot_type, y = score, fill = bot_type)) +
+  geom_violin(data = filter(plot_data, dv != "Perceived Idea Ownership"), 
+              trim = FALSE, alpha = 0.85, color = NA) +
+  geom_violin(data = filter(plot_data, dv == "Perceived Idea Ownership"), 
+              trim = TRUE, alpha = 0.85, color = NA) +
+  geom_boxplot(width = 0.14, outlier.shape = NA, color = "white", alpha = 0.95) +
+  stat_summary(fun = median, geom = "point", shape = 23, size = 2.2, fill = "white") +
+  facet_wrap(~ dv, scales = "free_y", ncol = 3) +
+  ggh4x::facetted_pos_scales(
+    y = list(
+      dv == "Perceived Idea Ownership" ~ scale_y_continuous(limits = c(0, 7), breaks = seq(0, 7, 1))
+    )
+  ) +
+  scale_x_discrete(limits = present_levels, labels = boxplot_label_map[present_levels]) +
+  scale_fill_manual(values = bot_colors[present_levels],
+                    breaks = present_levels,
+                    labels = boxplot_label_map[present_levels],
+                    limits = present_levels) +
+  labs(x = "Bot Type", y = "Score") +
+  guides(fill = "none") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank(),
+        strip.text = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_violin)
+
+# Save violin plots
+# Also save as PDF (vector graphics)
+ggsave(
+  filename = fig_path("violin_refinedSim_ideaQuality_ownership_by_condition.pdf"),
+  plot = p_violin, width = 12, height = 4.5, device = "pdf", bg = "white", useDingbats = FALSE
+)
+```
+
+```{r}
+# Calculate means and standard errors for each DV and bot type
+dv_summary <- plot_data %>%
+  group_by(bot_type, dv) %>%
+  summarise(
+    mean_score = mean(score, na.rm = TRUE),
+    se_score = sd(score, na.rm = TRUE) / sqrt(n()),
+    n = n(),
+    .groups = 'drop'
+  )
+
+# Create CHI-style dot plot with error bars
+p_dot_mean <- ggplot(dv_summary, aes(x = bot_type, y = mean_score, color = bot_type)) +
+  # Error bars
+  geom_errorbar(aes(ymin = mean_score - se_score, ymax = mean_score + se_score),
+                width = 0.3, size = 0.7, alpha = 0.9) +
+  # Data points (means)
+  geom_point(size = 4, alpha = 0.95) +
+  
+  # Faceting by DV
+  facet_wrap(~ dv, scales = "free_y", ncol = 3) +
+  ggh4x::facetted_pos_scales(
+    y = list(
+      dv == "Perceived Idea Ownership" ~ scale_y_continuous(limits = c(3.5, 6.5), breaks = seq(3.5, 6.5, 0.5))
+    )
+  ) +
+  
+  # Color scheme
+  scale_x_discrete(limits = present_levels, labels = boxplot_label_map[present_levels]) +
+  scale_color_manual(values = bot_colors[present_levels],
+                     breaks = present_levels,
+                     labels = boxplot_label_map[present_levels],
+                     limits = present_levels) +
+  
+  # Labels and theme
+  labs(x = "", y = "Mean Score") +
+  guides(color = "none") +
+  theme_classic(base_size = 11) +
+  theme(
+    # Facet styling
+    strip.text = element_text(face = "bold", size = 11, color = "black"),
+    strip.background = element_rect(fill = "grey95", color = "grey80", size = 0.5),
+    
+    # Axis styling
+    axis.text.x = element_text(size = 9.5, angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(size = 10, color = "black"),
+    axis.title.y = element_text(size = 11, face = "bold", margin = margin(r = 10)),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.5),
+    
+    # Panel styling
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.grid.major.y = element_line(color = "grey92", size = 0.3),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Spacing
+    panel.spacing = unit(1.2, "lines"),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+print(p_dot_mean)
+
+# Save publication-ready dot plot
+ggsave(
+  filename = fig_path("dotplot_refinedSim_ideaQuality_ownership_by_condition_chi.pdf"),
+  plot = p_dot_mean, width = 12, height = 4.5, device = "pdf", bg = "white", useDingbats = FALSE
+)
+```
+
+#Violin Plot Cognitive Workload
+```{r}
+# Custom bot order for TLX violin: Question-mode, Suggestion-mode, Model-led, Vanilla, Control
+desired_levels_tlx <- c("feedback", "suggestion", "improvement", "vanilla", "control")
+present_levels_tlx <- desired_levels_tlx[desired_levels_tlx %in% unique(as.character(data_clean$bot_type))]
+
+# Prepare data for composite NASA-TLX measure
+tlx_data <- data_clean %>%
+  dplyr::select(bot_type, NASA_TLX) %>%
+  dplyr::filter(!is.na(bot_type), !is.na(NASA_TLX)) %>%
+  dplyr::mutate(bot_type = factor(as.character(bot_type), levels = present_levels_tlx))
+
+p_tlx_violin <- ggplot2::ggplot(tlx_data, ggplot2::aes(x = bot_type, y = NASA_TLX, fill = bot_type)) +
+  ggplot2::geom_violin(trim = FALSE, alpha = 0.85, color = NA) +
+  ggplot2::geom_boxplot(width = 0.14, outlier.shape = NA, color = "white", alpha = 0.95) +
+  ggplot2::stat_summary(fun = median, geom = "point", shape = 23, size = 2.2, fill = "white") +
+  ggplot2::scale_x_discrete(limits = present_levels_tlx, labels = boxplot_label_map[present_levels_tlx]) +
+  ggplot2::scale_fill_manual(values = bot_colors[present_levels_tlx],
+                             breaks = present_levels_tlx,
+                             labels = boxplot_label_map[present_levels_tlx],
+                             limits = present_levels_tlx) +
+  ggplot2::labs(x = "Bot Type", y = "Perceived Cognitive Workload") +
+  ggplot2::scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+  ggplot2::guides(fill = "none") +
+  ggplot2::theme_minimal(base_size = 12) +
+  ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+
+print(p_tlx_violin)
+
+# Create bar charts for cognitive workload and creative self-efficacy
+# Prepare data for bar charts - calculate means and standard errors
+bar_data <- data_clean %>%
+  dplyr::filter(!is.na(bot_type)) %>%
+  dplyr::mutate(bot_type = factor(as.character(bot_type), levels = present_levels_tlx)) %>%
+  dplyr::group_by(bot_type) %>%
+  dplyr::summarise(
+    NASA_TLX_mean = mean(NASA_TLX, na.rm = TRUE),
+    NASA_TLX_se = sd(NASA_TLX, na.rm = TRUE) / sqrt(n()),
+    Creative_Self_Efficacy_mean = mean(Creative_Self_Efficacy, na.rm = TRUE),
+    Creative_Self_Efficacy_se = sd(Creative_Self_Efficacy, na.rm = TRUE) / sqrt(n()),
+    n = n(),
+    .groups = 'drop'
+  ) %>%
+  dplyr::filter(!is.na(bot_type))
+
+
+# Create cognitive workload bar chart (ACM/CHI publication style)
+p_tlx_bar <- ggplot2::ggplot(bar_data, ggplot2::aes(x = bot_type, y = NASA_TLX_mean, fill = bot_type)) +
+  ggplot2::geom_col(alpha = 0.8, color = NA, width = 0.7) +
+  ggplot2::geom_errorbar(ggplot2::aes(ymin = pmax(0, NASA_TLX_mean - NASA_TLX_se), 
+                                      ymax = pmin(100, NASA_TLX_mean + NASA_TLX_se)),
+                         width = 0.25, size = 0.6, color = "black") +
+  ggplot2::scale_x_discrete(limits = present_levels_tlx, labels = boxplot_label_map[present_levels_tlx]) +
+  ggplot2::scale_fill_manual(values = bot_colors[present_levels_tlx],
+                             breaks = present_levels_tlx,
+                             labels = boxplot_label_map[present_levels_tlx],
+                             limits = present_levels_tlx) +
+  ggplot2::labs(x = "", y = "Cognitive Workload (0-100)", title = "(a) Perceived Cognitive Workload") +
+  ggplot2::scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 25), expand = c(0, 0)) +
+  ggplot2::guides(fill = "none") +
+  ggplot2::theme_classic(base_size = 10) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(hjust = 0, size = 11, face = "bold", margin = ggplot2::margin(b = 10)),
+    axis.title.y = ggplot2::element_text(size = 10, margin = ggplot2::margin(r = 8)),
+    axis.text.x = ggplot2::element_text(size = 9, angle = 45, hjust = 1, margin = ggplot2::margin(t = 1)),
+    axis.text.y = ggplot2::element_text(size = 9),
+    axis.line = ggplot2::element_line(color = "black", size = 0.4),
+    axis.ticks = ggplot2::element_line(color = "black", size = 0.4),
+    panel.background = ggplot2::element_rect(fill = "white", color = NA),
+    plot.background = ggplot2::element_rect(fill = "white", color = NA),
+    panel.grid.major.y = ggplot2::element_line(color = "gray95", size = 0.3),
+    panel.grid.major.x = ggplot2::element_blank(),
+    plot.margin = ggplot2::margin(8, 10, 4, 8)
+  )
+
+# Create creative self-efficacy bar chart (ACM/CHI publication style)
+p_cse_bar <- ggplot2::ggplot(bar_data, ggplot2::aes(x = bot_type, y = Creative_Self_Efficacy_mean, fill = bot_type)) +
+  ggplot2::geom_col(alpha = 0.8, color = NA, width = 0.7) +
+  ggplot2::geom_errorbar(ggplot2::aes(ymin = pmax(0, Creative_Self_Efficacy_mean - Creative_Self_Efficacy_se), 
+                                      ymax = pmin(7, Creative_Self_Efficacy_mean + Creative_Self_Efficacy_se)),
+                         width = 0.25, size = 0.6, color = "black") +
+  ggplot2::scale_x_discrete(limits = present_levels_tlx, labels = boxplot_label_map[present_levels_tlx]) +
+  ggplot2::scale_fill_manual(values = bot_colors[present_levels_tlx],
+                             breaks = present_levels_tlx,
+                             labels = boxplot_label_map[present_levels_tlx],
+                             limits = present_levels_tlx) +
+  ggplot2::labs(x = "", y = "Creative Self-Efficacy (1-7)", title = "(b) Creative Self-Efficacy") +
+  ggplot2::scale_y_continuous(limits = c(0, 7), breaks = seq(0, 7, 1), expand = c(0, 0)) +
+  ggplot2::guides(fill = "none") +
+  ggplot2::theme_classic(base_size = 10) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(hjust = 0, size = 11, face = "bold", margin = ggplot2::margin(b = 10)),
+    axis.title.y = ggplot2::element_text(size = 10, margin = ggplot2::margin(r = 8)),
+    axis.text.x = ggplot2::element_text(size = 9, angle = 45, hjust = 1, margin = ggplot2::margin(t = 1)),
+    axis.text.y = ggplot2::element_text(size = 9),
+    axis.line = ggplot2::element_line(color = "black", size = 0.4),
+    axis.ticks = ggplot2::element_line(color = "black", size = 0.4),
+    panel.background = ggplot2::element_rect(fill = "white", color = NA),
+    plot.background = ggplot2::element_rect(fill = "white", color = NA),
+    panel.grid.major.y = ggplot2::element_line(color = "gray95", size = 0.3),
+    panel.grid.major.x = ggplot2::element_blank(),
+    plot.margin = ggplot2::margin(8, 10, 4, 8)
+  )
+
+# Combine bar charts side by side with minimal spacing
+combined_bar_plot <- gridExtra::grid.arrange(
+  p_tlx_bar, p_cse_bar, 
+  ncol = 2, 
+  heights = unit(3, "in"),
+  widths = unit.c(unit(3.5, "in"), unit(3.5, "in"))
+)
+
+print(combined_bar_plot)
+
+# Save outputs
+# Save violin plots
+ggplot2::ggsave(
+  filename = fig_path("violin_cognitive_workload_by_condition.pdf"),
+  plot = p_tlx_violin, width = 7, height = 4.5, device = "pdf", bg = "white", useDingbats = FALSE
+)
+
+# Save bar charts (ACM/CHI publication quality)
+ggplot2::ggsave(
+  filename = fig_path("bar_cognitive_workload_creativeSE_by_condition.pdf"),
+  plot = combined_bar_plot, width = 7, height = 3.5, device = "pdf", bg = "white", 
+  useDingbats = FALSE, units = "in"
+)
+
+# Save individual charts for single-column figures if needed
+ggplot2::ggsave(
+  filename = fig_path("bar_cognitive_workload_publication.pdf"),
+  plot = p_tlx_bar, width = 3.5, height = 3, device = "pdf", bg = "white", 
+  useDingbats = FALSE, units = "in"
+)
+ggplot2::ggsave(
+  filename = fig_path("bar_creative_self_efficacy_publication.pdf"),
+  plot = p_cse_bar, width = 3.5, height = 3, device = "pdf", bg = "white", 
+  useDingbats = FALSE, units = "in"
+)
+```
+
+
+# UX Measures Spider Plot
+```{r}
+# Ensure figures directory exists
+dir.create(fig_path(), showWarnings = FALSE, recursive = TRUE)
+
+# Clean the elaboration data and extract participant_id
+elaboration_clean <- elaboration_data %>%
+  rename(bot_type_elab = Condition) %>%
+  mutate(
+    Overall = as.numeric(Overall),
+    participant_id = as.character(participant_id)
+  ) %>%
+  select(participant_id, bot_type_elab, Overall) %>%
+  filter(!is.na(Overall))
+
+# Define the UX measures we want to include in the spider plot
+ux_measures <- c(
+  "Performance_Expectancy", 
+  "Effort_Expectancy",
+  "Hedonic_Motivation",
+  "Perceived_Ownership",
+  "Creative_Self_Efficacy",  # Added creative self-efficacy
+  "Mental_Load",  # Combined mental demand and mental effort
+  "Elaboration_Depth"  # From Overall Score
+)
+
+# Create readable labels for the spider plot
+ux_measure_labels <- c(
+  "Performance\nExpectancy",
+  "Effort\nExpectancy", 
+  "Hedonic\nMotivation",
+  "Perceived\nOwnership",
+  "Creative\nSelf-Efficacy",  # Added label for creative self-efficacy
+  "Perceived\n Cognitive\nWorkload",  # Combined label
+  "Elaboration Depth"
+)
+
+# Calculate group means for each bot type and UX measure
+# Standardized bot order for all graphics: Question-mode, Suggestion-mode, Model-led, Vanilla, Control
+bot_order <- c("feedback", "suggestion", "improvement", "vanilla", "control")
+
+# First calculate the regular UX measures
+ux_spider_data <- data_clean %>%
+  # Only include bot types that have UX measures (exclude control group)
+  filter(bot_type %in% bot_order & bot_type != "control") %>%
+  group_by(bot_type) %>%
+  summarise(
+    Performance_Expectancy = mean(Performance_Expectancy, na.rm = TRUE),
+    Effort_Expectancy = mean(Effort_Expectancy, na.rm = TRUE),
+    Hedonic_Motivation = mean(Hedonic_Motivation, na.rm = TRUE),
+    Perceived_Ownership = mean(Perceived_Ownership, na.rm = TRUE),
+    Creative_Self_Efficacy = mean(Creative_Self_Efficacy, na.rm = TRUE),  # Added creative self-efficacy
+    NASA_TLX = mean(NASA_TLX, na.rm = TRUE),  # Added NASA_TLX for Mental Load
+    .groups = "drop"
+  )
+
+# Now add elaboration depth from the data
+elaboration_means <- elaboration_clean %>%
+  group_by(bot_type_elab) %>%
+  summarise(Elaboration_Depth = mean(Overall, na.rm = TRUE), .groups = "drop") %>%
+  rename(bot_type = bot_type_elab)
+
+# Merge elaboration data with UX data
+ux_spider_data <- ux_spider_data %>%
+  left_join(elaboration_means, by = "bot_type") %>%
+  # Remove rows with all NA values
+  filter(!is.na(Performance_Expectancy) | !is.na(NASA_TLX)) %>%
+  # Ensure the order is correct so suggestion is plotted last
+  arrange(match(bot_type, bot_order))
+
+print(ux_spider_data)
+
+# Transform all measures to consistent 1-7 scale for better interpretation
+# 7-point scales (1-7) -> keep as is
+# tlx1 & tlx2 (0-100) -> transform to 1-7 scale  
+# Overall Score (1-5) -> transform to 1-7 scale
+
+print(ux_spider_data %>% select(bot_type, Elaboration_Depth))
+
+ux_spider_normalized <- ux_spider_data %>%
+  mutate(
+    # Keep 7-point scales as is (1-7)
+    Performance_Expectancy = Performance_Expectancy,
+    Effort_Expectancy = Effort_Expectancy,
+    Hedonic_Motivation = Hedonic_Motivation,
+    Perceived_Ownership = Perceived_Ownership,
+    Creative_Self_Efficacy = Creative_Self_Efficacy,  # Added - keep as is (1-7 scale)
+    
+    # Transform 5-point scale (1-5) to 7-point scale (1-7) for Overall Score
+    Elaboration_Depth = 1 + ((Elaboration_Depth - 1) / 4) * 6,  # Maps 1→1, 5→7
+    
+    # Transform NASA-TLX to 1-7 scale and rename to Mental_Load for spider plot
+    Mental_Load = 1 + (NASA_TLX / 100) * 6  # Maps 0→1, 100→7 (NASA-TLX Mental Load)
+  )
+
+print(ux_spider_normalized)
+
+# Prepare final data for radarchart (fmsb format)
+ux_radar_data <- ux_spider_normalized %>%
+  select(all_of(ux_measures)) %>%
+  as.data.frame()
+
+# Set column names to readable labels
+colnames(ux_radar_data) <- ux_measure_labels
+
+# Add max and min rows (required by fmsb) - now using 1-7 scale
+max_row <- rep(7, ncol(ux_radar_data))
+min_row <- rep(1, ncol(ux_radar_data))
+
+ux_radar_final <- rbind(max_row, min_row, ux_radar_data)
+
+# Create bot labels using existing label_map
+present_bot_types <- as.character(ux_spider_normalized$bot_type)
+ux_bot_labels <- sapply(present_bot_types, function(x) {
+  # Use single-line labels for spider plot
+  label <- label_map[x]
+  if(is.na(label)) label <- x
+  # Return label as-is (no line breaks to remove)
+  label
+})
+
+# Set row names
+rownames(ux_radar_final) <- c("Max", "Min", ux_bot_labels)
+
+print("Final UX radar data for plotting:")
+print(ux_radar_final)
+
+# Use original bot_colors palette for publication consistency
+ux_radar_colors <- sapply(present_bot_types, function(x) {
+  color_hex <- bot_colors[x]
+  if(is.na(color_hex)) color_hex <- "#808080"  # Default gray
+  # Convert to RGB with professional transparency for CHI publication
+  rgb_vals <- col2rgb(color_hex)
+  rgb(rgb_vals[1], rgb_vals[2], rgb_vals[3], alpha = 70, maxColorValue = 255)
+})
+
+ux_radar_border_colors <- sapply(present_bot_types, function(x) {
+  color_hex <- bot_colors[x]
+  if(is.na(color_hex)) color_hex <- "#808080"
+  color_hex
+})
+
+print("Bot types for UX spider plot:")
+print(present_bot_types)
+print("UX Legend labels:")
+print(ux_bot_labels)
+
+# Set up the plot area
+par(mar = c(2, 2, 2, 2), mfrow = c(1, 1))
+
+# Create radar chart with CHI publication styling
+radarchart(
+  ux_radar_final,
+  # Axis settings
+  axistype = 1,
+  maxmin = TRUE,
+  
+  # Grid settings (professional, subtle)
+  cglcol = "grey80",
+  cglty = 1,
+  cglwd = 0.8,
+  
+  # Axis labels (1-7 scale)
+  axislabcol = "grey10",
+  caxislabels = seq(1, 7, 1),
+  calcex = 1.0,
+  
+  # Polygon settings (professional colors and line weights)
+  pcol = ux_radar_border_colors,
+  pfcol = ux_radar_colors,
+  plwd = 2.5,  # Professional line weight
+  plty = 1,
+  
+  # Variable label settings (publication appropriate)
+  vlcex = 1.1,
+  vlabels = colnames(ux_radar_final),
+  
+  # Grid segments for 1-7 scale (6 segments for 7 labels)
+  seg = 6
+)
+
+# Add professional legend for CHI - positioned to avoid overlap with labels
+legend(
+  x = 0.8, y = 1.25,
+  legend = ux_bot_labels,
+  bty = "n",
+  pch = 15,  # Square symbols for better printing
+  col = ux_radar_border_colors,
+  text.col = "black",
+  cex = 1.0,
+  pt.cex = 1.8,
+  title = "Condition",
+  title.col = "black",
+  title.cex = 1.0
+)
+
+# Also create PDF version  (vector graphics for LaTeX)
+pdf(fig_path("ux_measures_spider_chart.pdf"), width = 10, height = 8, useDingbats = FALSE)
+
+par(mar = c(2, 2, 2, 2), mfrow = c(1, 1))
+
+radarchart(
+  ux_radar_final,
+  axistype = 1,
+  maxmin = TRUE,
+  cglcol = "grey80",
+  cglty = 1,
+  cglwd = 0.8,
+  axislabcol = "grey10",
+  caxislabels = seq(1, 7, 1),
+  calcex = 1.0,
+  pcol = ux_radar_border_colors,
+  pfcol = ux_radar_colors,
+  plwd = 2.5,
+  plty = 1,
+  vlcex = 1.1,
+  vlabels = colnames(ux_radar_final),
+  seg = 6
+)
+
+legend(
+  x = 0.8, y = 1.25,
+  legend = ux_bot_labels,
+  bty = "n",
+  pch = 15,
+  col = ux_radar_border_colors,
+  text.col = "black",
+  cex = 1.0,
+  pt.cex = 1.8,
+  title = "Condition",
+  title.col = "black",
+  title.cex = 1.0
+)
+
+dev.off()
+```
+
+# ROBUSTNESS CHECKS
+
+This section presents robustness checks for the three main dependent variables: Idea Quality, Idea Diversity, and Perceived Ownership. These checks assess whether the main findings are robust to alternative modeling approaches and distributional assumptions.
+
+## 1. Idea Quality Robustness Checks
+
+### 1.1 Kruskal-Wallis Non-Parametric Test
+
+The Kruskal-Wallis test is a non-parametric alternative to ANOVA that does not assume normality or equal variances. It tests whether the distribution of quality ratings differs across bot types.
+
+```{r robustness-quality-kruskal}
+# Kruskal-Wallis test
+kw_quality <- kruskal.test(Average ~ bot_type, data = data_clean)
+kw_quality
+
+# Effect size for overall test
+kw_effsize_quality <- kruskal_effsize(Average ~ bot_type, data = data_clean)
+kw_effsize_quality
+
+# Dunn's post-hoc test with Holm adjustment and one-sided p-values
+dunn_quality <- dunn_test(Average ~ bot_type, data = data_clean, p.adjust.method = "holm") %>%
+  mutate(
+    r = statistic / sqrt(n1 + n2),
+    p_one_sided = ifelse(statistic > 0, p / 2, 1 - p / 2),
+    p.adj_one_sided = ifelse(statistic > 0, p.adj / 2, 1 - p.adj / 2)
+  )
+dunn_quality
+```
+
+## 2. Idea Diversity Robustness Checks
+
+### 2.1 Kruskal-Wallis Non-Parametric Test
+
+The Kruskal-Wallis test is a non-parametric alternative to ANOVA that does not assume normality or equal variances. It tests whether the distribution of diversity scores differs across bot types.
+
+```{r robustness-diversity-kruskal}
+# Kruskal-Wallis test
+kw_div <- kruskal.test(refined_div_condition ~ bot_type, data = data_clean)
+kw_div
+
+# Effect size for overall test
+kw_effsize_div <- kruskal_effsize(refined_div_condition ~ bot_type, data = data_clean)
+kw_effsize_div
+
+# Dunn's post-hoc test with Holm adjustment and one-sided p-values
+dunn_div <- dunn_test(refined_div_condition ~ bot_type, data = data_clean, p.adjust.method = "holm") %>%
+  mutate(
+    r = statistic / sqrt(n1 + n2),
+    p_one_sided = ifelse(statistic > 0, p / 2, 1 - p / 2),
+    p.adj_one_sided = ifelse(statistic > 0, p.adj / 2, 1 - p.adj / 2)
+  )
+dunn_div
+```
+
+### 2.2 Kruskal-Wallis Test for Logit-Transformed Diversity
+
+```{r robustness-diversity-logit-kruskal}
+# Kruskal-Wallis test for logit-transformed diversity
+kw_div_logit <- kruskal.test(refined_div_condition_logit ~ bot_type, data = data_clean)
+kw_div_logit
+
+# Effect size for overall test
+kw_effsize_div_logit <- kruskal_effsize(refined_div_condition_logit ~ bot_type, data = data_clean)
+kw_effsize_div_logit
+
+# Dunn's post-hoc test with Holm adjustment and one-sided p-values
+dunn_div_logit <- dunn_test(refined_div_condition_logit ~ bot_type, data = data_clean, p.adjust.method = "holm") %>%
+  mutate(
+    r = statistic / sqrt(n1 + n2),
+    p_one_sided = ifelse(statistic > 0, p / 2, 1 - p / 2),
+    p.adj_one_sided = ifelse(statistic > 0, p.adj / 2, 1 - p.adj / 2)
+  )
+dunn_div_logit
+```
+
+## 3. Perceived Ownership Robustness Checks
+
+### 3.1 Kruskal-Wallis Non-Parametric Test
+
+Perceived ownership is measured on a 7-point Likert scale, which has ordinal properties. The Kruskal-Wallis test is appropriate for ordinal data and does not assume normality.
+
+```{r robustness-ownership-kruskal}
+# Kruskal-Wallis test
+kw_owner <- kruskal.test(Perceived_Ownership ~ bot_type, data = data_clean)
+kw_owner
+
+# Effect size for overall test
+kw_effsize_owner <- kruskal_effsize(Perceived_Ownership ~ bot_type, data = data_clean)
+kw_effsize_owner
+
+# Dunn's post-hoc test with Holm adjustment and one-sided p-values
+dunn_owner <- dunn_test(Perceived_Ownership ~ bot_type, data = data_clean, p.adjust.method = "holm") %>%
+  mutate(
+    r = statistic / sqrt(n1 + n2),
+    p_one_sided = ifelse(statistic > 0, p / 2, 1 - p / 2),
+    p.adj_one_sided = ifelse(statistic > 0, p.adj / 2, 1 - p.adj / 2)
+  )
+dunn_owner
+```
