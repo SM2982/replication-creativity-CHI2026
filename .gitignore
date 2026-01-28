@@ -15,7 +15,6 @@ Thumbs.db
 *.Rproj
 
 # R Markdown
-*.html
 *_cache/
 *_files/
 
@@ -84,26 +83,11 @@ creativity_env/
 *.snm
 *.vrb
 
-# Data files that might contain sensitive information
-# Uncomment if you want to exclude data files from version control
-# *.csv
-# *.xlsx
-# *.xls
-# *.npz
-
-# Large output files
-# Uncomment if you want to exclude large generated files
-# *.png
-# *.pdf
-# *.jpg
-# *.jpeg
-
-# Backup files
 *.bak
 *.backup
 *~
 
-# Node modules (if any web components)
+# Node modules 
 node_modules/
 
 # OS generated files
