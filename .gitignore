@@ -16,7 +16,6 @@ Thumbs.db
 
 # R Markdown
 *.html
-*.pdf
 *_cache/
 *_files/
 
